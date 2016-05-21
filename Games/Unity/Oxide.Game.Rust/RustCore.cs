@@ -44,6 +44,13 @@ namespace Oxide.Game.Rust
         private readonly Lang lang = Interface.Oxide.GetLibrary<Lang>();
         private readonly Dictionary<string, string> messages = new Dictionary<string, string>
         {
+            {"InvalidHelpInfo", "{0} passed invalid data to OnHelp"},
+            {"NoHelpInfo", "No plugins with help available..."},
+            {"NoHelpCommands", "\tNo commands available..."},
+            {"HelpCategories", "Choose one of the Categories:" },
+            {"AllPluginsHelp", "Showing help for all plugins:"},
+            {"PluginHelp", "Showing help for {0}:"},
+            {"InvalidArgument", "Invalid argument passed"},
             {"CommandUsageLoad", "Usage: load *|<pluginname>+"},
             {"CommandUsageGrant", "Usage: grant <group|user> <name|id> <permission>"},
             {"CommandUsageGroup", "Usage: group <add|remove|set> <name> [title] [rank]"},
@@ -80,6 +87,9 @@ namespace Oxide.Game.Rust
         };
 
         #endregion
+
+        // Track help info from plugins
+        private Dictionary<string, object> helpInfo = new Dictionary<string, object>();
 
         // Track when the server has been initialized
         private bool serverInitialized;
@@ -137,7 +147,13 @@ namespace Oxide.Game.Rust
             // Register messages for localization
             lang.RegisterMessages(messages, this);
 
+            // Make sure we get the info of all plugins that might have loaded before us
+            foreach (var plugin in pluginManager.GetPlugins()) FindHelpInfo( plugin );
+
             // Add general commands
+            cmdlib.AddChatCommand( "help", this, "ChatHelp" );
+            cmdlib.AddConsoleCommand("oxide.help", this, "ConsoleHelp");
+            cmdlib.AddConsoleCommand("global.help", this, "ConsoleHelp");
             cmdlib.AddConsoleCommand("oxide.plugins", this, "ConsolePlugins");
             cmdlib.AddConsoleCommand("global.plugins", this, "ConsolePlugins");
             cmdlib.AddConsoleCommand("oxide.load", this, "ConsoleLoad");
@@ -194,6 +210,18 @@ namespace Oxide.Game.Rust
         private void OnPluginLoaded(Plugin plugin)
         {
             if (serverInitialized) plugin.CallHook("OnServerInitialized");
+
+            FindHelpInfo(plugin);
+        }
+
+        /// <summary>
+        /// Called when another plugin has been unloaded
+        /// </summary>
+        /// <param name="plugin"></param>
+        [HookMethod("OnPluginUnloaded")]
+        private void OnPluginUnloaded(Plugin plugin)
+        {
+            helpInfo.Remove(plugin.Title);
         }
 
         #endregion
@@ -579,6 +607,32 @@ namespace Oxide.Game.Rust
         #endregion
 
         #region Chat/Console Commands
+
+        #region Help Command
+
+        /// <summary>
+        /// Called when the "help" console command has been executed
+        /// </summary>
+        /// <param name="arg"></param>
+        [HookMethod("ConsoleHelp")]
+        private void ConsoleHelp(ConsoleSystem.Arg arg)
+        {
+            DisplayHelp(arg.connection, arg.Args);
+        }
+
+        /// <summary>
+        /// Called when the "help" chat command has been executed
+        /// </summary>
+        /// <param name="player"></param>
+        /// <param name="cmd"></param>
+        /// <param name="args"></param>
+        [HookMethod("ChatHelp")]
+        private void ChatHelp(BasePlayer player, string cmd, string[] args)
+        {
+            DisplayHelp(player.net.connection, args, true);
+        }
+
+        #endregion
 
         #region Plugins Command
 
@@ -1374,6 +1428,172 @@ namespace Oxide.Game.Rust
                     return sleepingPlayer;
             }
             return null;
+        }
+
+        private void FindHelpInfo(Plugin plugin)
+        {
+            if (plugin is Oxide.Plugins.CSharpPlugin)
+            {
+            }
+            else if (plugin is Oxide.Ext.Lua.Plugins.LuaPlugin)
+            {
+                foreach(KeyValuePair<object, object> functions in (plugin.Object as NLua.LuaTable))
+                {
+                    if (functions.Key.Equals("OnHelp") && functions.Value is NLua.LuaFunction)
+                    {
+                        var result = (functions.Value as NLua.LuaFunction).Call(plugin.Object);
+
+                        if (result.Length == 1 && result[0] is NLua.LuaTable)
+                        {
+                            var plugin_help = new Dictionary<string, object>();
+
+                            foreach (KeyValuePair<object, object> help_info in (result[0] as NLua.LuaTable))
+                            {
+                                var helpinfo_key = help_info.Key as string;
+
+                                if (helpinfo_key.EndsWith("commands"))
+                                {
+                                    var category = new Dictionary<string, object>();
+
+                                    foreach (KeyValuePair<object, object> command in (help_info.Value as NLua.LuaTable))
+                                    {
+                                        var command_info = new Dictionary<string, object>();
+
+                                        foreach (KeyValuePair<object, object> info in (command.Value as NLua.LuaTable))
+                                        {
+                                            var info_key = info.Key as string;
+
+                                            if (info.Value is string) command_info[info_key] = info.Value as string;
+                                            else
+                                            {
+                                                var info_data = new List<string>();
+
+                                                foreach (KeyValuePair<object, object> data in (info.Value as NLua.LuaTable)) info_data.Add( data.Value as string );
+
+                                                command_info[info_key] = info_data;
+                                            }
+                                        }
+
+                                        category[command.Key as string] = command_info;
+                                    }
+
+                                    plugin_help[helpinfo_key] = category;
+                                }
+                                else plugin_help[helpinfo_key] = help_info.Value as string;
+                            }
+
+                            helpInfo[plugin.Title] = plugin_help;
+                        }
+                        else Reply(null, "InvalidHelpInfo", plugin.Title);
+                    }
+                }
+            }
+            else if (plugin is Oxide.Ext.JavaScript.Plugins.JavaScriptPlugin)
+            {
+            }
+            else if (plugin is Oxide.Ext.Python.Plugins.PythonPlugin)
+            {
+            }
+        }
+
+        private void DisplayHelp(Connection connection, string[] args, bool chatcommand = false)
+        {
+            if (helpInfo.Count < 1)
+            {
+                Reply(connection, "NoHelpInfo");
+                return;
+            }
+
+            var arg_str = "";
+
+            if (args != null && args.Length > 0)
+            {
+                arg_str = args[0].ToLower();
+
+                for (int i = 1; i < args.Length; i++) arg_str += " " + args[i].ToLower();
+            }
+            else Reply(connection, "HelpCategories");
+
+            foreach (var plugin in helpInfo)
+            {
+                var plugin_name = plugin.Key;
+                var plugin_info = plugin.Value as Dictionary<string, object>;
+
+                if (args == null || args.Length == 0)
+                {
+                    Reply(connection, "\t" + (chatcommand ? "/" : "") + "help " + (plugin_name.Contains(" ") ? "\"" + plugin_name + "\"" : plugin_name) + (plugin_info.ContainsKey("description") ? " - " + (plugin_info["description"] as string) : ""));
+                }
+                else
+                {
+                    if (arg_str != "all" && arg_str != plugin_name.ToLower()) continue;
+
+                    Reply(connection, "PluginHelp", plugin_name);
+
+                    if(plugin_info.ContainsKey(chatcommand ? "chatcommands" : "concommands") || plugin_info.ContainsKey("commands"))
+                    {
+                        foreach (var category in plugin_info)
+                        {
+                            if (category.Value is string) continue;
+
+                            var category_name = category.Key.ToLower();
+                            var category_info = category.Value as Dictionary<string, object>;
+
+                            if (( category_name == (chatcommand ? "chatcommands" : "concommands") || category_name == "commands"))
+                            {
+                                if (category_info.Count > 0)
+                                {
+                                    foreach (var command in category_info)
+                                    {
+                                        var info = command.Value as Dictionary<string, object>;
+
+                                        var command_allowed = false;
+
+                                        if (info.ContainsKey("permission"))
+                                        {
+                                            var command_permission = info["permission"] as string;
+
+                                            if (command_permission.Length == 0 || (command_permission.Length > 0 && permission.IsLoaded && permission.UserHasPermission(connection.userid.ToString(), command_permission))) command_allowed = true;
+                                        }
+
+                                        if (!info.ContainsKey("permission") || command_allowed)
+                                        {
+                                            var alias = "";
+                                            if (info.ContainsKey("alias"))
+                                            {
+                                                if (info["alias"] is string) alias = info["alias"] as string;
+                                                else
+                                                {
+                                                    var aliases = info["alias"] as List<string>;
+                                                    alias = (chatcommand ? "/" : "") + aliases[0];
+                                                    for (int i = 1; i < aliases.Count; i++) alias += ", " + (chatcommand ? "/" : "") + aliases[i];
+                                                }
+                                            }
+
+                                            if (info.ContainsKey("usage") && info.ContainsKey("description"))
+                                            {
+                                                var usage = info["usage"] as string;
+                                                var description = info["description"] as string;
+
+                                                Reply(connection, "\t" + ( info.ContainsKey("alias") ? "(" + alias + ")": "") + (chatcommand ? "/" : "") + command.Key + (usage.Length > 0 ? " " + usage : "") + (description.Length > 0 ? " - " + description : ""));
+                                            }
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    // Fixme: \t isn't working...
+                                    Reply(connection, "NoHelpCommands");
+                                    return;
+                                }
+                            }
+                        }
+                    }
+
+                    if (arg_str != "all") return;
+                }
+            }
+
+            if (args != null && args.Length > 0) Reply(connection, "InvalidArgument");
         }
 
         #endregion

@@ -51,9 +51,18 @@
     <Reference Include="Facepunch.UnityEngine">
       <HintPath>Dependencies\Facepunch.UnityEngine.dll</HintPath>
     </Reference>
+    <Reference Include="IronPython">
+      <HintPath>..\..\..\Extensions\Oxide.Ext.Python\Dependencies\IronPython.dll</HintPath>
+    </Reference>
+    <Reference Include="Jint">
+      <HintPath>..\..\..\Extensions\Oxide.Ext.JavaScript\Dependencies\Jint.dll</HintPath>
+    </Reference>
     <Reference Include="Newtonsoft.Json">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\..\Oxide.Core\Dependencies\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="NLua">
+      <HintPath>..\..\..\Extensions\Oxide.Ext.Lua\Dependencies\NLua.dll</HintPath>
     </Reference>
     <Reference Include="protobuf-net">
       <SpecificVersion>False</SpecificVersion>
@@ -93,6 +102,18 @@
     <None Include="Plugins\SamplePlugin.cs" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\..\Extensions\Oxide.Ext.JavaScript\JavaScript.csproj">
+      <Project>{3a9897bd-2022-4621-bc2c-f05ea39fa4ef}</Project>
+      <Name>JavaScript</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\..\Extensions\Oxide.Ext.Lua\Lua.csproj">
+      <Project>{18d00f0b-8cf3-4002-940a-4a8ca449a352}</Project>
+      <Name>Lua</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\..\Extensions\Oxide.Ext.Python\Python.csproj">
+      <Project>{b05d4995-6e61-4e82-ac91-5a7b46ec9781}</Project>
+      <Name>Python</Name>
+    </ProjectReference>
     <ProjectReference Include="..\..\..\Oxide.Core\Core.csproj">
       <Project>{67f65f5d-a62a-4752-849d-bff30d828107}</Project>
       <Name>Core</Name>
